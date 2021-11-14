@@ -11,8 +11,10 @@ class GaussianDataSampler:
     '''Class that samples Gaussian data according to DAGs.
 
     Args:
-        num_data_points (int):
-            The number of data points to sample for each node in the DAGs.
+        num_data_points (int or None):
+            The number of data points to sample for each node in the DAGs. If
+            None, then the number of data points will have to be set when
+            calling the `sample` method.
         random_seed (int or None, optional):
             A random seed to be used for setting up the sampling. If set then
             the samples will still be different, but the results will be
@@ -20,12 +22,13 @@ class GaussianDataSampler:
             Defaults to None.
 
     Attributes:
+        num_data_points (int): The number of data points to sample.
         random_seed (int or None): Random seed used for sampling.
         rng (NumPy Generator): Random number generator.
     '''
 
     def __init__(self,
-                 num_data_points: int,
+                 num_data_points: Optional[int] = None,
                  random_seed: Optional[int] = None):
         self.num_data_points = num_data_points
         self.random_seed = random_seed
@@ -68,13 +71,15 @@ class GaussianDataSampler:
     def _sample_data(self,
                      node: int,
                      dag: DAG,
-                     data: np.ndarray) -> np.ndarray:
+                     data: np.ndarray,
+                     num_data_points: int) -> np.ndarray:
         '''Samples data for a node.
 
         Args:
             node (int): The node to sample data for.
             dag (DAG): The DAG to sample data from.
             data (NumPy array): The sampled data.
+            num_data_points (int): The number of data points to sample.
 
         Returns:
             NumPy array: The sampled data.
@@ -84,7 +89,7 @@ class GaussianDataSampler:
 
         # Get the noise value for the node
         node_data = np.array([self._sample_noise()
-                              for _ in range(self.num_data_points)])
+                              for _ in range(num_data_points)])
 
         # Add the contributions from the parents
         for parent in parents:
@@ -93,7 +98,10 @@ class GaussianDataSampler:
             coeff = self._sample_regression_coefficient()
 
             # Get the data from the parent
-            parent_data = self._sample_data(parent, dag, data)
+            parent_data = self._sample_data(node=parent,
+                                            dag=dag,
+                                            data=data,
+                                            num_data_points=num_data_points)
 
             # Compute the contribution from the parent
             parent_contrib = coeff * parent_data[parent]
@@ -107,7 +115,9 @@ class GaussianDataSampler:
         # Return the data
         return data
 
-    def sample(self, dag: DAG) -> np.ndarray:
+    def sample(self,
+               dag: DAG,
+               num_data_points: Optional[int] = None) -> np.ndarray:
         '''Samples data according to the DAG.
 
         This samples sigma ~ Unif[0.5, 2] and epsilon ~ N(0, sigma^2) for each
@@ -118,13 +128,32 @@ class GaussianDataSampler:
         We repeat this for all the parents.
 
         Args:
-            dag (DAG): The DAG to sample data from.
+            dag (DAG):
+                The DAG to sample data from.
+            num_data_points (int, optional):
+                The number of data points to sample. If None then
+                `self.num_data_points` will be used. Defaults to None.
 
         Returns:
             NumPy array:
                 The sampled data, organised as a NumPy array with shape
-                (num_nodes, self.num_data_points).
+                (num_data_points, num_nodes).
+
+        Raises:
+            ValueError:
+                If `num_data_points` is None and `self.num_data_points` is
+                also None.
         '''
+        # Raise an error if both `num_data_points` and `self.num_data_points`
+        # are None
+        if num_data_points is None and self.num_data_points is None:
+            raise ValueError('Either `num_data_points` or '
+                             '`self.num_data_points` must be set.')
+
+        # If `num_data_points` is None then use `self.num_data_points`
+        if num_data_points is None:
+            num_data_points = self.num_data_points
+
         # Collect the sink nodes in the DAG
         sink_nodes = list(dag.sinks())
 
@@ -135,14 +164,21 @@ class GaussianDataSampler:
             dag.add_arc(sink_node, new_node_index)
 
         # Initialise the data array
-        data = np.zeros((dag.nnodes, self.num_data_points))
+        data = np.zeros((dag.nnodes, num_data_points))
 
         # Sample the data from the new unique sink node, which will recursively
         # sample the data from all the parents
-        data = self._sample_data(node=new_node_index, dag=dag, data=data)
+        data = self._sample_data(node=new_node_index,
+                                 dag=dag,
+                                 data=data,
+                                 num_data_points=num_data_points)
 
         # Remove the new node from the data
         data = data[:-1]
+
+        # Transpose the data matrix to end up with a matrix of shape
+        # (num_data_points, num_nodes)
+        data = data.T
 
         # Return the data
         return data
@@ -192,6 +228,6 @@ if __name__ == '__main__':
     dag, cpdag = dag_sampler.sample()
     samples = gaussian_sampler.sample(dag)
 
-    print(samples.shape)
+    print(samples)
 
-    gaussian_sampler.sample_many([dag] * 100_000)
+    gaussian_sampler.sample_many([dag] * 50_000)

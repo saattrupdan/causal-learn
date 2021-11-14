@@ -11,8 +11,10 @@ class DAGSampler:
     '''Class that samples Directed Acyclic Graphs (DAGs).
 
     Args:
-        num_variables (int):
-            Number of variables in the DAGs.
+        num_variables (int or None, optional):
+            Number of variables in the DAGs. If set to None, then the number
+            of variables will have to be set when calling the `sample` method.
+            Defaults to None.
         random_seed (int or None, optional):
             A random seed to be used for setting up the sampling. If set then
             the samples will still be different, but the results will be
@@ -20,11 +22,13 @@ class DAGSampler:
             Defaults to None.
 
     Attributes:
-        num_variables (int): Number of variables in the DAGs.
+        num_variables (int or None): Number of variables in the DAGs.
         random_seed (int or None): Random seed used for sampling.
         rng (NumPy Generator): Random number generator.
     '''
-    def __init__(self, num_variables: int, random_seed: Optional[int] = None):
+    def __init__(self,
+                 num_variables: Optional[int] = None,
+                 random_seed: Optional[int] = None):
         self.num_variables = num_variables
         self.random_seed = random_seed
 
@@ -32,16 +36,36 @@ class DAGSampler:
         self.rng = np.random.default_rng(seed=random_seed)
 
 
-    def sample(self, *_) -> Tuple[DAG, np.ndarray]:
+    def sample(self,
+               num_variables: Optional[int] = None) -> Tuple[DAG, np.ndarray]:
         '''Sample a DAG.
+
+        Args:
+            num_variables (int or None, optional):
+                Number of variables in the DAG. If set to None, then
+                self.num_variables will be used. Defaults to None.
 
         Returns:
             tuple of DAG and NumPy array:
                 A tuple of a sampled DAG and its associated CPDAG, the latter
                 organised as a NumPy array of its adjacency matrix.
+
+        Raises:
+            ValueError:
+                If both `num_variables` and `self.num_variables` are None.
         '''
+        # Raise an error if both `num_variables` and `self.num_variables` are
+        # None
+        if num_variables is None and self.num_variables is None:
+            raise ValueError('Either `num_variables` or `self.num_variables` '
+                             'must be set.')
+
+        # If `num_variables` is None then use `self.num_variables`
+        if num_variables is None:
+            num_variables = self.num_variables
+
         # Initialize the adjacency matrix as a lower triangular matrix of ones
-        adj_matrix = np.tril(np.ones((self.num_variables, self.num_variables)))
+        adj_matrix = np.tril(np.ones((num_variables, num_variables)))
 
         # Sample the sparsity from Unif[0, 0.8]
         sparsity = self.rng.uniform(0, 0.8)
@@ -106,4 +130,3 @@ if __name__ == '__main__':
     dag_sampler = DAGSampler(num_variables=5, random_seed=4242)
     print(dag_sampler.sample())
     dag_sampler.sample_many(50_000)
-
