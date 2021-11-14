@@ -64,6 +64,13 @@ if __name__ == '__main__':
     from itertools import islice
     dataset = CorrDataset()
     dataloader = DataLoader(dataset)
+
+    for batch in dataloader:
+        corr_matrix, cpdag = batch
+        print(corr_matrix)
+        print(cpdag)
+        break
+
     with tqdm(total=100) as pbar:
         for batch in islice(dataloader, 100):
             pbar.update()
