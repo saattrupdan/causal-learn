@@ -163,9 +163,11 @@ class CausalDiscoverer(nn.Module):
             graph_data['feat', 'correlated_with', 'feat'].edge_index = \
                 torch.ones((2, num_feats * num_feats)).long()
             graph_data['feat', 'correlated_with', 'feat'].edge_attr = \
-                torch.tensor(corr_matrix).view(num_feats * num_feats, 1)
-            graph_data['feat', 'implies', 'feat'].edge_index = \
-                torch.empty(2, 0)
+                (torch.tensor(corr_matrix)
+                      .view(num_feats * num_feats, 1)
+                      .float())
+            # graph_data['feat', 'implies', 'feat'].edge_index = \
+            #     torch.empty(2, 0)
 
             # Loop until no more causal edges are added
             while True:
