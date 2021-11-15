@@ -23,7 +23,7 @@ def train(config: Config):
     # Load the data and set up a dataloader
     dataset = CorrDataset(num_variables_range=config.num_variables_range,
                           num_data_points_range=config.num_data_points_range,
-                          random_seed=config.random_seed)
+                          random_seed=config.sampling_random_seed)
     dataloader = DataLoader(dataset)
 
     # Initialise the model

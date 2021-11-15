@@ -9,6 +9,7 @@ class Config:
     # Dataset hyperparameters
     num_variables_range: Tuple[int, int] = (3, 10)
     num_data_points_range: Tuple[int, int] = (100, 10_000)
+    sampling_random_seed: int = 4242
 
     # Model hyperparameters
     dim: int = 100
@@ -25,7 +26,6 @@ class Config:
 
     # Miscellaneous hyperparameters
     model_path: str = './models/model.pt'
-    random_seed: int = 4242
 
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
