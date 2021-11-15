@@ -21,7 +21,9 @@ def train(config: Config):
     model_path = Path(config.model_path)
 
     # Load the data and set up a dataloader
-    dataset = CorrDataset()
+    dataset = CorrDataset(num_variables_range=config.num_variables_range,
+                          num_data_points_range=config.num_data_points_range,
+                          random_seed=config.random_seed)
     dataloader = DataLoader(dataset)
 
     # Initialise the model
