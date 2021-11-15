@@ -1,6 +1,7 @@
 '''Class that samples a Directed Acyclic Graph (DAG)'''
 
 import numpy as np
+from scipy import sparse
 from causaldag import DAG
 from typing import Optional, Tuple, List
 import multiprocessing as mp
@@ -46,9 +47,9 @@ class DAGSampler:
                 self.num_variables will be used. Defaults to None.
 
         Returns:
-            tuple of DAG and NumPy array:
+            tuple of DAG and SciPy sparse matrix:
                 A tuple of a sampled DAG and its associated CPDAG, the latter
-                organised as a NumPy array of its adjacency matrix.
+                organised as a SciPy sparse matrix of its adjacency matrix.
 
         Raises:
             ValueError:
@@ -83,8 +84,8 @@ class DAGSampler:
         # Convert the adjacency matrix to a DAG
         dag = DAG.from_amat(adj_matrix)
 
-        # Extract the CPDAG from the DAG, as an adjacency matrix
-        cpdag = dag.cpdag().to_amat()[0]
+        # Extract the CPDAG from the DAG, as a sparse adjacency matrix
+        cpdag = sparse.csr_matrix(dag.cpdag().to_amat()[0])
 
         return dag, cpdag
 
@@ -128,5 +129,6 @@ class DAGSampler:
 if __name__ == '__main__':
     # Test the DAG sampler
     dag_sampler = DAGSampler(num_variables=5, random_seed=4242)
-    print(dag_sampler.sample())
-    dag_sampler.sample_many(50_000)
+    dag, cpdag = dag_sampler.sample()
+    print(dag, cpdag)
+    dag_sampler.sample_many(1_000)
