@@ -62,6 +62,14 @@ def train(config: Config):
             # Compute the f1 score
             f1 = f1_metric(edge_probabilities, y.squeeze(0).int())
 
+            # Calculate the exponential moving average of the loss
+            ema_loss = (config.ema_decay * ema_loss +
+                        (1 - config.ema_decay) * float(loss.item()))
+
+            # Calculate the exponential moving average of the f1 score
+            ema_f1 = (config.ema_decay * ema_f1 +
+                      (1 - config.ema_decay) * float(f1))
+
             # Backpropagate the loss
             loss.backward()
 
@@ -73,14 +81,6 @@ def train(config: Config):
 
                 # Zero the gradients
                 optimiser.zero_grad()
-
-                # Calculate the exponential moving average of the loss
-                ema_loss = (config.ema_decay * ema_loss +
-                            (1 - config.ema_decay) * float(loss.item()))
-
-                # Calculate the exponential moving average of the f1 score
-                ema_f1 = (config.ema_decay * ema_f1 +
-                          (1 - config.ema_decay) * float(f1))
 
                 # Update the progress bar
                 pbar.set_description(f'Training - loss {ema_loss:.4f} - '

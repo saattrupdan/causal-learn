@@ -9,7 +9,7 @@ class Config:
     num_iterations: int = 1_000_000
     dropout: float = 0.0
     lr: float = 3e-4
-    ema_decay: float = 0.9
+    ema_decay: float = 0.999
     batch_size: int = 32
     model_path: str = './models/model.pt'
     threshold: float = 0.5
