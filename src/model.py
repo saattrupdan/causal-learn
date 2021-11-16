@@ -53,6 +53,10 @@ class CausalDiscoverer(nn.Module):
                                       nn.LayerNorm(config.dim),
                                       nn.GELU(),
                                       nn.Dropout(config.dropout),
+                                      nn.Linear(config.dim, config.dim),
+                                      nn.LayerNorm(config.dim),
+                                      nn.GELU(),
+                                      nn.Dropout(config.dropout),
                                       nn.Linear(config.dim, 1),
                                       nn.Sigmoid())
 
@@ -99,6 +103,10 @@ class CausalDiscoverer(nn.Module):
         edge_feats[:, :, self.dim:] = (x.repeat(1, num_nodes)
                                         .view(num_nodes, num_nodes, self.dim)
                                         .transpose(0, 1))
+
+        # Move edge_feats to GPU if it's present
+        if torch.cuda.is_available():
+            edge_feats = edge_feats.cuda()
 
         # Apply the MLP to get the edge probabilities, ending up with a tensor
         # of shape (num_nodes, num_nodes)
