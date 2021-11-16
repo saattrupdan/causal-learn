@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 from pathlib import Path
 import json
 
-from data import CorrDataset
+from data import CPDAGDataset
 from model import CausalDiscoverer
 from config import Config
 
@@ -30,11 +30,24 @@ def train(config: Config):
     config_path = model_dir / 'config.json'
 
     # Load the data and set up a dataloader
-    dataset = CorrDataset(config)
+    dataset = CPDAGDataset(config)
     dataloader = DataLoader(dataset)
 
     # Initialise the model
     model = CausalDiscoverer(config)
+
+    # Move the model to the GPU if it is available
+    if torch.cuda.is_available():
+        model = model.cuda()
+
+    # Load the model weights if they exist
+    if model_path.exists():
+        model.load_state_dict(torch.load(model_path))
+
+    # Set the model to training mode
+    model.train()
+
+    # Count the number of parameters in the model and print it
     num_params = sum(p.numel() for p in model.parameters())
     print(f'The model has {num_params:,} parameters.')
 
@@ -43,13 +56,6 @@ def train(config: Config):
     precision_metric = tm.Precision(threshold=config.threshold)
     recall_metric = tm.Recall(threshold=config.threshold)
     specificity_metric = tm.Specificity(threshold=config.threshold)
-
-    # Load the model weights if they exist
-    if model_path.exists():
-        model.load_state_dict(torch.load(config.model_path))
-
-    # Set the model to training mode
-    model.train()
 
     # Define the optimiser
     optimiser = opt.AdamW(model.parameters(), lr=config.lr)
@@ -69,6 +75,11 @@ def train(config: Config):
         # Train the model
         for iter_idx, batch in pbar:
             data, y = batch
+
+            # Move the data to the GPU if it is available
+            if torch.cuda.is_available():
+                data = data.cuda()
+                y = y.cuda()
 
             # Forward pass
             edge_probabilities = model(data)

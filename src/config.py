@@ -12,7 +12,7 @@ class Config:
     num_data_points : int = 10_000
 
     # Model hyperparameters
-    dim: int = 250
+    dim: int = 100
     dropout: float = 0.0
 
     # Training hyperparameters

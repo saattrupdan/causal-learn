@@ -1,7 +1,7 @@
 '''GNN model used to predict CPDAG from a correlation matrix'''
 
 import torch_geometric.nn as tgnn
-from torch_geometric.data import HeteroData
+from torch_geometric.data import Data
 from torch_geometric.utils.dropout import dropout_adj
 import numpy as np
 import pandas as pd
@@ -35,36 +35,20 @@ class CausalDiscoverer(nn.Module):
         super().__init__()
         self.dim = config.dim
         self.dropout = config.dropout
-        self.conv1 = tgnn.HeteroConv({
-            ('feat', 'correlated_with', 'feat'): tgnn.GINEConv(
-                nn.Sequential(nn.Linear(1, config.dim),
-                              nn.LayerNorm(config.dim),
-                              nn.GELU(),
-                              nn.Dropout(config.dropout),
-                              nn.Linear(config.dim, config.dim)),
-                edge_dim=1),
-            ('feat', 'implies', 'feat'): tgnn.GINConv(
-                nn.Sequential(nn.Linear(1, config.dim),
-                              nn.LayerNorm(config.dim),
-                              nn.GELU(),
-                              nn.Dropout(config.dropout),
-                              nn.Linear(config.dim, config.dim)))},
-            aggr='sum')
-        self.conv2 = tgnn.HeteroConv({
-            ('feat', 'correlated_with', 'feat'): tgnn.GINEConv(
-                nn.Sequential(nn.Linear(config.dim, config.dim),
-                              nn.LayerNorm(config.dim),
-                              nn.GELU(),
-                              nn.Dropout(config.dropout),
-                              nn.Linear(config.dim, config.dim)),
-                edge_dim=1),
-            ('feat', 'implies', 'feat'): tgnn.GINConv(
-                nn.Sequential(nn.Linear(config.dim, config.dim),
-                              nn.LayerNorm(config.dim),
-                              nn.GELU(),
-                              nn.Dropout(config.dropout),
-                              nn.Linear(config.dim, config.dim)))},
-            aggr='sum')
+        self.conv1 = tgnn.GINConv(
+            nn.Sequential(nn.Linear(config.num_data_points, config.dim),
+                          nn.LayerNorm(config.dim),
+                          nn.GELU(),
+                          nn.Dropout(config.dropout),
+                          nn.Linear(config.dim, config.dim))
+        )
+        self.conv2 = tgnn.GINConv(
+            nn.Sequential(nn.Linear(config.dim, config.dim),
+                          nn.LayerNorm(config.dim),
+                          nn.GELU(),
+                          nn.Dropout(config.dropout),
+                          nn.Linear(config.dim, config.dim))
+        )
         self.edge_mlp = nn.Sequential(nn.Linear(config.dim * 2, config.dim),
                                       nn.LayerNorm(config.dim),
                                       nn.GELU(),
@@ -75,18 +59,20 @@ class CausalDiscoverer(nn.Module):
         # Initialise a random generator
         self._rng = np.random.default_rng()
 
-    def forward(self, data: HeteroData) -> torch.Tensor:
+    def forward(self, data: Data) -> torch.Tensor:
         '''Get node features from a correlation/causal graph.
 
         Args:
-            data (PyG HeteroData object):
-                The graph data, containing 'feat' as the only node type, and
-                'correlated_with' and 'implies' as the edge types.
+            data (PyG Data object):
+                The graph data.
 
         Returns:
             PyTorch tensor:
                 The edge probabilities
         '''
+        # Extract the graph data
+        x, edge_index = data.x, data.edge_index
+
         # Drop causal edges if training
         if self.training:
 
@@ -94,24 +80,18 @@ class CausalDiscoverer(nn.Module):
             causal_dropout = self._rng.uniform(0, 1)
 
             # Dropout causal edges with probability `causal_dropout`
-            causal_edge_index = data['feat', 'implies', 'feat'].edge_index
-            edge_index, _ = dropout_adj(edge_index=causal_edge_index,
+            edge_index, _ = dropout_adj(edge_index=edge_index,
                                         p=causal_dropout,
                                         training=self.training)
-            data['feat', 'implies', 'feat'].edge_index = edge_index
+            edge_index = edge_index
 
         # Apply convolutional layers to get the node features
-        x_dict = self.conv1(data.x_dict,
-                            data.edge_index_dict,
-                            data.edge_attr_dict)
-        x_dict = self.conv2(x_dict,
-                            data.edge_index_dict,
-                            data.edge_attr_dict)
+        x = self.conv1(x, edge_index)
+        x = self.conv2(x, edge_index)
 
         # Extract edge features from the node features. This concatenates every
         # pair of node features in `x`, ending up with a tensor of shape
         # (num_nodes, num_nodes, `self.dim` * 2)
-        x = x_dict['feat']
         num_nodes = x.size(0)
         edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 2))
         edge_feats[:, :, :self.dim] = (x.repeat(1, num_nodes)
@@ -161,7 +141,7 @@ class CausalDiscoverer(nn.Module):
 
             # Organise the input as a PyG graph, to be inputted to the model
             graph_data = HeteroData()
-            graph_data['feat'].x = torch.ones((num_feats, 1))
+            graph_data['feat'].x = torch.tensor(data_matrix)
             graph_data['feat', 'correlated_with', 'feat'].edge_index = \
                 torch.ones((2, num_feats * num_feats)).long()
             graph_data['feat', 'correlated_with', 'feat'].edge_attr = \

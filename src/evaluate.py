@@ -6,7 +6,6 @@ import json
 import torch
 import torchmetrics as tm
 from tqdm.auto import tqdm
-from collections import defaultdict
 
 from model import CausalDiscoverer
 from dag_sampler import DAGSampler

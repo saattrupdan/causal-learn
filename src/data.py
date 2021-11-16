@@ -1,7 +1,7 @@
 '''PyTorch dataloader to load correlation matrices and their CPDAGs'''
 
 from torch.utils.data import IterableDataset
-from torch_geometric.data import HeteroData
+from torch_geometric.data import Data
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 import numpy as np
 import torch
@@ -11,7 +11,7 @@ from gaussian_sampler import GaussianDataSampler
 from config import Config
 
 
-class CorrDataset(IterableDataset):
+class CPDAGDataset(IterableDataset):
     '''PyTorch dataset to load correlation matrices and their CPDAGs.
 
     Args:
@@ -53,25 +53,13 @@ class CorrDataset(IterableDataset):
             data_matrix = self._gaussian_sampler.sample(dag,
                                                         self.num_data_points)
 
-            # Compute the correlation matrix of `data_matrix`
-            corr_matrix = np.corrcoef(data_matrix.T)
-
-            # Store the number of features
-            num_feats = data_matrix.shape[1]
-
             # Get the edge_index of the CPDAG
             cpdag_edge_idx, _ = from_scipy_sparse_matrix(cpdag)
 
             # Organise the input as a PyG graph, to be inputted to the model
-            graph_data = HeteroData()
-            graph_data['feat'].x = torch.ones((num_feats, 1))
-            graph_data['feat', 'correlated_with', 'feat'].edge_index = \
-                torch.ones((2, num_feats * num_feats)).long()
-            graph_data['feat', 'correlated_with', 'feat'].edge_attr = \
-                (torch.tensor(corr_matrix)
-                      .view(num_feats * num_feats, 1)
-                      .float())
-            graph_data['feat', 'implies', 'feat'].edge_index = cpdag_edge_idx
+            graph_data = Data()
+            graph_data.x = torch.tensor(data_matrix.T).float()
+            graph_data.edge_index = cpdag_edge_idx
 
             # Convert the cpdag adjacency matrix to a PyTorch tensor
             cpdag = torch.from_numpy(cpdag.todense()).float()
