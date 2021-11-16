@@ -6,35 +6,24 @@ from typing import Optional, List
 import multiprocessing as mp
 from tqdm.auto import tqdm
 
+from config import Config
+
 
 class GaussianDataSampler:
     '''Class that samples Gaussian data according to DAGs.
 
     Args:
-        num_data_points (int or None):
-            The number of data points to sample for each node in the DAGs. If
-            None, then the number of data points will have to be set when
-            calling the `sample` method.
-        random_seed (int or None, optional):
-            A random seed to be used for setting up the sampling. If set then
-            the samples will still be different, but the results will be
-            reproducible. If set to None then no random seed will be set.
-            Defaults to None.
+        config (Config): The configuration object.
 
     Attributes:
         num_data_points (int): The number of data points to sample.
-        random_seed (int or None): Random seed used for sampling.
-        rng (NumPy Generator): Random number generator.
     '''
 
-    def __init__(self,
-                 num_data_points: Optional[int] = None,
-                 random_seed: Optional[int] = None):
-        self.num_data_points = num_data_points
-        self.random_seed = random_seed
+    def __init__(self, config: Config):
+        self.num_data_points = config.num_data_points
 
         # Set up the random number generator
-        self.rng = np.random.default_rng(seed=random_seed)
+        self._rng = np.random.default_rng()
 
     def _sample_noise(self) -> float:
         '''Samples a noise value.
@@ -45,8 +34,8 @@ class GaussianDataSampler:
         Returns:
             float: The sampled noise.
         '''
-        sigma = self.rng.uniform(0.5, 2)
-        epsilon = self.rng.normal(0, sigma**2)
+        sigma = self._rng.uniform(0.5, 2)
+        epsilon = self._rng.normal(0, sigma**2)
         return epsilon
 
     def _sample_regression_coefficient(self) -> float:
@@ -60,10 +49,10 @@ class GaussianDataSampler:
             float: The sampled coefficient.
         '''
         # Sample the sign
-        b_sign = self.rng.choice([-1, 1], p=[0.4, 0.6])
+        b_sign = self._rng.choice([-1, 1], p=[0.4, 0.6])
 
         # Sample the value
-        b_val = self.rng.uniform(0.1, 2)
+        b_val = self._rng.uniform(0.1, 2)
 
         # Return the product
         return b_sign * b_val
@@ -222,8 +211,8 @@ class GaussianDataSampler:
 if __name__ == '__main__':
     from dag_sampler import DAGSampler
 
-    dag_sampler = DAGSampler(num_variables=5, random_seed=4242)
-    gaussian_sampler = GaussianDataSampler(num_data_points=10, random_seed=0)
+    dag_sampler = DAGSampler(num_variables=5)
+    gaussian_sampler = GaussianDataSampler(num_data_points=10)
 
     dag, cpdag = dag_sampler.sample()
     samples = gaussian_sampler.sample(dag)

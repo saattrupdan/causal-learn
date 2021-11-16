@@ -5,25 +5,34 @@ from torch_geometric.data import HeteroData
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 import numpy as np
 import torch
-from typing import Optional, Tuple
+
 from dag_sampler import DAGSampler
 from gaussian_sampler import GaussianDataSampler
+from config import Config
 
 
 class CorrDataset(IterableDataset):
-    '''PyTorch dataset to load correlation matrices and their CPDAGs'''
+    '''PyTorch dataset to load correlation matrices and their CPDAGs.
 
-    def __init__(self,
-                 num_variables_range: Tuple[int, int] = (3, 5),
-                 num_data_points_range: Tuple[int, int] = (100, 1000),
-                 random_seed: Optional[int] = None):
-        self.num_variables_range = num_variables_range
-        self.num_data_points_range = num_data_points_range
-        self._dag_sampler = DAGSampler(random_seed=random_seed)
-        self._gaussian_sampler = GaussianDataSampler(random_seed=random_seed)
+    Args:
+        config (Config):
+            Config object containing the configuration parameters.
+
+    Attributes:
+        num_variables (int):
+            Number of variables in the dataset.
+        num_data_points_range (tuple):
+            Range of the number of data points in the dataset.
+    '''
+
+    def __init__(self, config: Config):
+        self.num_variables_range = config.num_variables_range
+        self.num_data_points = config.num_data_points
+        self._dag_sampler = DAGSampler(config)
+        self._gaussian_sampler = GaussianDataSampler(config)
 
         # Set up the random number generator
-        self.rng = np.random.default_rng(seed=random_seed)
+        self._rng = np.random.default_rng()
 
     def _iteration_fn(self):
         '''Iteration function which iterates over the dataset'''
@@ -32,23 +41,17 @@ class CorrDataset(IterableDataset):
 
             # Sample the number of variables, uniformly among
             # `self.num_variables_range`
-            num_variables = self.rng.integers(
+            num_variables = self._rng.integers(
                 low=self.num_variables_range[0],
                 high=self.num_variables_range[1]
-            )
-
-            # Sample the number of data points, uniformly among
-            # `self.num_data_points_range`
-            num_data_points = self.rng.integers(
-                low=self.num_data_points_range[0],
-                high=self.num_data_points_range[1]
             )
 
             # Sample the DAG and CPDAG
             dag, cpdag = self._dag_sampler.sample(num_variables)
 
             # Sample the data
-            data_matrix = self._gaussian_sampler.sample(dag, num_data_points)
+            data_matrix = self._gaussian_sampler.sample(dag,
+                                                        self.num_data_points)
 
             # Compute the correlation matrix of `data_matrix`
             corr_matrix = np.corrcoef(data_matrix.T)

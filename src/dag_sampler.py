@@ -7,34 +7,27 @@ from typing import Optional, Tuple, List
 import multiprocessing as mp
 from tqdm.auto import tqdm
 
+from config import Config
+
 
 class DAGSampler:
     '''Class that samples Directed Acyclic Graphs (DAGs).
 
     Args:
-        num_variables (int or None, optional):
-            Number of variables in the DAGs. If set to None, then the number
-            of variables will have to be set when calling the `sample` method.
-            Defaults to None.
-        random_seed (int or None, optional):
-            A random seed to be used for setting up the sampling. If set then
-            the samples will still be different, but the results will be
-            reproducible. If set to None then no random seed will be set.
-            Defaults to None.
+        config (Config):
+            Configuration object.
 
     Attributes:
         num_variables (int or None): Number of variables in the DAGs.
-        random_seed (int or None): Random seed used for sampling.
-        rng (NumPy Generator): Random number generator.
     '''
-    def __init__(self,
-                 num_variables: Optional[int] = None,
-                 random_seed: Optional[int] = None):
-        self.num_variables = num_variables
-        self.random_seed = random_seed
+    def __init__(self, config: Config):
+        try:
+            self.num_variables = config.num_variables
+        except AttributeError:
+            self.num_variables = None
 
         # Set up the random number generator
-        self.rng = np.random.default_rng(seed=random_seed)
+        self._rng = np.random.default_rng()
 
 
     def sample(self,
@@ -69,17 +62,16 @@ class DAGSampler:
         adj_matrix = np.tril(np.ones((num_variables, num_variables)))
 
         # Sample the sparsity from Unif[0, 0.8]
-        sparsity = self.rng.uniform(0, 0.8)
+        sparsity = self._rng.uniform(0, 0.8)
 
         # For each non-zero entry in the adjacency matrix, sample a Bernoulli
         # variable with probability `sparsity` and set the entry to 0 if the
         # Bernoulli variable is 1. This is equivalent to setting the entry to
         # 0 with probability `1 - sparsity`, which is what we are doing here.
         non_zero_shape = adj_matrix[adj_matrix != 0].shape
-        adj_matrix[adj_matrix != 0] = self.rng.binomial(n=1,
-                                                        p=1-sparsity,
-                                                        size=non_zero_shape)
-
+        adj_matrix[adj_matrix != 0] = self._rng.binomial(n=1,
+                                                         p=1-sparsity,
+                                                         size=non_zero_shape)
 
         # Convert the adjacency matrix to a DAG
         dag = DAG.from_amat(adj_matrix)
@@ -128,7 +120,7 @@ class DAGSampler:
 
 if __name__ == '__main__':
     # Test the DAG sampler
-    dag_sampler = DAGSampler(num_variables=5, random_seed=4242)
+    dag_sampler = DAGSampler(num_variables=5)
     dag, cpdag = dag_sampler.sample()
     print(dag, cpdag)
     dag_sampler.sample_many(1_000)
