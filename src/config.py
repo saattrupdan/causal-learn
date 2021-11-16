@@ -9,20 +9,20 @@ class Config:
 
     # Dataset hyperparameters
     num_variables_range: Tuple[int, int] = (2, 10)
-    num_data_points : int = 10_000
+    num_data_points : int = 1_000
 
     # Model hyperparameters
-    dim: int = 100
-    dropout: float = 0.0
+    dim: int = 500
+    dropout: float = 0.1
 
     # Training hyperparameters
     num_iterations: int = 1_000_000
     lr: float = 3e-4
-    batch_size: int = 1
+    batch_size: int = 32
     threshold: float = 0.5
 
     # Metric hyperparameters
-    ema_decay: float = 0.99
+    ema_decay: float = 0.999
 
     # Miscellaneous hyperparameters
     _datetime = dt.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
