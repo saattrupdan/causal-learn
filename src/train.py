@@ -9,6 +9,7 @@ import itertools as it
 from tqdm.auto import tqdm
 from pathlib import Path
 import json
+import multiprocessing as mp
 
 from data import CPDAGDataset
 from model import CausalDiscoverer
@@ -31,14 +32,14 @@ def train(config: Config):
 
     # Load the data and set up a dataloader
     dataset = CPDAGDataset(config)
-    dataloader = DataLoader(dataset)
+    dataloader = DataLoader(dataset, num_workers=mp.cpu_count())
 
     # Initialise the model
     model = CausalDiscoverer(config)
 
     # Move the model to the GPU if it is available
     if torch.cuda.is_available():
-        model = model.cuda()
+        model.cuda()
 
     # Load the model weights if they exist
     if model_path.exists():
@@ -51,11 +52,25 @@ def train(config: Config):
     num_params = sum(p.numel() for p in model.parameters())
     print(f'The model has {num_params:,} parameters.')
 
+    # Report which device the model is on
+    model_on_gpu = next(model.parameters()).is_cuda
+    if model_on_gpu:
+        print('The model lies on the GPU.')
+    else:
+        print('The model lies on the CPU.')
+
     # Initialise the metrics
     f1_metric = tm.F1(threshold=config.threshold)
     precision_metric = tm.Precision(threshold=config.threshold)
     recall_metric = tm.Recall(threshold=config.threshold)
     specificity_metric = tm.Specificity(threshold=config.threshold)
+
+    # Move metrics to the GPU if it is available
+    if torch.cuda.is_available():
+        f1_metric.cuda()
+        precision_metric.cuda()
+        recall_metric.cuda()
+        specificity_metric.cuda()
 
     # Define the optimiser
     optimiser = opt.AdamW(model.parameters(), lr=config.lr)
