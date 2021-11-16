@@ -8,6 +8,7 @@ import torchmetrics as tm
 import itertools as it
 from tqdm.auto import tqdm
 from pathlib import Path
+import json
 
 from data import CorrDataset
 from model import CausalDiscoverer
@@ -18,19 +19,30 @@ def train(config: Config):
     '''Training script of GNN on sampled data'''
 
     # Initialise the model path
-    model_path = Path(config.model_path)
+    model_dir = Path(config.model_dir)
+
+    # Create the model directory if it doesn't exist
+    if not model_dir.exists():
+        model_dir.mkdir()
+
+    # Set the model and config paths
+    model_path = model_dir / 'model.pt'
+    config_path = model_dir / 'config.json'
 
     # Load the data and set up a dataloader
-    dataset = CorrDataset(num_variables_range=config.num_variables_range,
-                          num_data_points_range=config.num_data_points_range,
-                          random_seed=config.sampling_random_seed)
+    dataset = CorrDataset(config)
     dataloader = DataLoader(dataset)
 
     # Initialise the model
-    model = CausalDiscoverer(dim=config.dim, dropout=config.dropout)
+    model = CausalDiscoverer(config)
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f'The model has {num_params:,} parameters.')
 
-    # Initialise the F1 metric
+    # Initialise the metrics
     f1_metric = tm.F1(threshold=config.threshold)
+    precision_metric = tm.Precision(threshold=config.threshold)
+    recall_metric = tm.Recall(threshold=config.threshold)
+    specificity_metric = tm.Specificity(threshold=config.threshold)
 
     # Load the model weights if they exist
     if model_path.exists():
@@ -42,9 +54,12 @@ def train(config: Config):
     # Define the optimiser
     optimiser = opt.AdamW(model.parameters(), lr=config.lr)
 
-    # Initialise the exponentially moving average of the loss and f1 score
+    # Initialise the exponentially moving average of the loss and metrics
     ema_loss = 1.
     ema_f1 = 0.
+    ema_precision = 0.
+    ema_recall = 0.
+    ema_specificity = 0.
 
     # Set up a progress bar
     with tqdm(enumerate(it.islice(dataloader, config.num_iterations)),
@@ -61,8 +76,13 @@ def train(config: Config):
             # Calculate the loss
             loss = F.binary_cross_entropy(edge_probabilities, y.squeeze(0))
 
-            # Compute the f1 score
+            # Compute the metrics
             f1 = f1_metric(edge_probabilities, y.squeeze(0).int())
+            precision = precision_metric(edge_probabilities,
+                                         y.squeeze(0).int())
+            recall = recall_metric(edge_probabilities, y.squeeze(0).int())
+            specificity = specificity_metric(edge_probabilities,
+                                             y.squeeze(0).int())
 
             # Calculate the exponential moving average of the loss
             ema_loss = (config.ema_decay * ema_loss +
@@ -71,6 +91,18 @@ def train(config: Config):
             # Calculate the exponential moving average of the f1 score
             ema_f1 = (config.ema_decay * ema_f1 +
                       (1 - config.ema_decay) * float(f1))
+
+            # Calculate the exponential moving average of the precision
+            ema_precision = (config.ema_decay * ema_precision +
+                             (1 - config.ema_decay) * float(precision))
+
+            # Calculate the exponential moving average of the recall
+            ema_recall = (config.ema_decay * ema_recall +
+                          (1 - config.ema_decay) * float(recall))
+
+            # Calculate the exponential moving average of the specificity
+            ema_specificity = (config.ema_decay * ema_specificity +
+                               (1 - config.ema_decay) * float(specificity))
 
             # Backpropagate the loss
             loss.backward()
@@ -85,11 +117,21 @@ def train(config: Config):
                 optimiser.zero_grad()
 
                 # Update the progress bar
-                pbar.set_description(f'Training - loss {ema_loss:.4f} - '
-                                     f'F1 score {100 * ema_f1:.2f}')
+                pbar.set_description(
+                    f'Training - loss {ema_loss:.4f} - '
+                    f'F1 score {100 * ema_f1:.2f} - '
+                    f'Precision {100 * ema_precision:.2f} - '
+                    f'Recall {100 * ema_recall:.2f} - '
+                    f'Specificity {100 * ema_specificity:.2f}'
+                )
+
+    # Save the config
+    with config_path.open('w') as f:
+        json.dump(config.__dict__, f)
 
     # Save the model
-    torch.save(model.state_dict(), config.model_path)
+    torch.save(model.state_dict(), model_path)
+
 
 if __name__ == '__main__':
     config = Config()
