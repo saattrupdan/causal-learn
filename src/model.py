@@ -9,15 +9,15 @@ import torch
 import torch.nn as nn
 from typing import Union
 
+from config import Config
+
 
 class CausalDiscoverer(nn.Module):
     '''GNN model used to predict CPDAG from a correlation matrix.
 
     Args:
-        dim (int):
-            The node dimension.
-        dropout (float, optional):
-            The dropout rate. Defaults to 0.5.
+        config (Config):
+            Configuration object containing hyperparameters for the model.
 
     Attributes:
         dim (int):
@@ -28,50 +28,52 @@ class CausalDiscoverer(nn.Module):
             The first convolutional layer.
         conv2 (torch.nn.Conv1d):
             The second convolutional layer.
+        edge_mlp (torch.nn.Sequential):
+            The MLP used to get the edge probabilities.
     '''
-    def __init__(self, dim: int, dropout: float = 0.5):
+    def __init__(self, config: Config):
         super().__init__()
-        self.dim = dim
-        self.dropout = dropout
+        self.dim = config.dim
+        self.dropout = config.dropout
         self.conv1 = tgnn.HeteroConv({
             ('feat', 'correlated_with', 'feat'): tgnn.GINEConv(
-                nn.Sequential(nn.Linear(1, dim),
-                              nn.LayerNorm(dim),
+                nn.Sequential(nn.Linear(1, config.dim),
+                              nn.LayerNorm(config.dim),
                               nn.GELU(),
-                              nn.Dropout(dropout),
-                              nn.Linear(dim, dim)),
+                              nn.Dropout(config.dropout),
+                              nn.Linear(config.dim, config.dim)),
                 edge_dim=1),
             ('feat', 'implies', 'feat'): tgnn.GINConv(
-                nn.Sequential(nn.Linear(1, dim),
-                              nn.LayerNorm(dim),
+                nn.Sequential(nn.Linear(1, config.dim),
+                              nn.LayerNorm(config.dim),
                               nn.GELU(),
-                              nn.Dropout(dropout),
-                              nn.Linear(dim, dim)))},
+                              nn.Dropout(config.dropout),
+                              nn.Linear(config.dim, config.dim)))},
             aggr='sum')
         self.conv2 = tgnn.HeteroConv({
             ('feat', 'correlated_with', 'feat'): tgnn.GINEConv(
-                nn.Sequential(nn.Linear(dim, dim),
-                              nn.LayerNorm(dim),
+                nn.Sequential(nn.Linear(config.dim, config.dim),
+                              nn.LayerNorm(config.dim),
                               nn.GELU(),
-                              nn.Dropout(dropout),
-                              nn.Linear(dim, dim)),
+                              nn.Dropout(config.dropout),
+                              nn.Linear(config.dim, config.dim)),
                 edge_dim=1),
             ('feat', 'implies', 'feat'): tgnn.GINConv(
-                nn.Sequential(nn.Linear(dim, dim),
-                              nn.LayerNorm(dim),
+                nn.Sequential(nn.Linear(config.dim, config.dim),
+                              nn.LayerNorm(config.dim),
                               nn.GELU(),
-                              nn.Dropout(dropout),
-                              nn.Linear(dim, dim)))},
+                              nn.Dropout(config.dropout),
+                              nn.Linear(config.dim, config.dim)))},
             aggr='sum')
-        self.edge_mlp = nn.Sequential(nn.Linear(dim * 2, dim),
-                                      nn.LayerNorm(dim),
+        self.edge_mlp = nn.Sequential(nn.Linear(config.dim * 2, config.dim),
+                                      nn.LayerNorm(config.dim),
                                       nn.GELU(),
-                                      nn.Dropout(dropout),
-                                      nn.Linear(dim, 1),
+                                      nn.Dropout(config.dropout),
+                                      nn.Linear(config.dim, 1),
                                       nn.Sigmoid())
 
         # Initialise a random generator
-        self.rng = np.random.default_rng()
+        self._rng = np.random.default_rng()
 
     def forward(self, data: HeteroData) -> torch.Tensor:
         '''Get node features from a correlation/causal graph.
@@ -88,8 +90,8 @@ class CausalDiscoverer(nn.Module):
         # Drop causal edges if training
         if self.training:
 
-            # Sample causal dropout rate from Unif[0, 1], using `self.rng`
-            causal_dropout = self.rng.uniform(0, 1)
+            # Sample causal dropout rate from Unif[0, 1], using `self._rng`
+            causal_dropout = self._rng.uniform(0, 1)
 
             # Dropout causal edges with probability `causal_dropout`
             causal_edge_index = data['feat', 'implies', 'feat'].edge_index
@@ -127,7 +129,7 @@ class CausalDiscoverer(nn.Module):
 
     def predict(self,
                 data_matrix: Union[np.ndarray, pd.DataFrame],
-                threshold: float = 0.5) -> torch.Tensor:
+                threshold: float = 0.5) -> np.ndarray:
         '''Predict CPDAG from a data matrix.
 
         This CPDAG is computed by successively applying the `forward` method on
@@ -166,8 +168,8 @@ class CausalDiscoverer(nn.Module):
                 (torch.tensor(corr_matrix)
                       .view(num_feats * num_feats, 1)
                       .float())
-            # graph_data['feat', 'implies', 'feat'].edge_index = \
-            #     torch.empty(2, 0)
+            graph_data['feat', 'implies', 'feat'].edge_index = \
+                torch.empty(2, 0, dtype=torch.long)
 
             # Loop until no more causal edges are added
             while True:
@@ -175,25 +177,53 @@ class CausalDiscoverer(nn.Module):
                 # Get the edge probabilities
                 edge_probs = self.forward(graph_data)
 
+                # Get the indices of the edges that we have already added
+                eidx = graph_data['feat', 'implies', 'feat'].edge_index
+                added_edges = [(int(i), int(j))
+                               for i, j in zip(eidx[0], eidx[1])]
+
+                # Get the maximum edge probability among the edges that we
+                # have not already added
+                max_prob = max([edge_probs[i, j]
+                                for i in range(num_feats)
+                                for j in range(num_feats)
+                                if (i, j) not in added_edges])
+
                 # If all probabilities are below the threshold then halt
-                if edge_probs.max() < threshold:
+                if max_prob < threshold:
                     break
 
                 # Otherwise, add a causal edge with the highest probability
                 else:
-                    # Get the node pair whose edge probability is largest
-                    src, tgt = edge_probs.argmax(dim=-1)
+                    # Get the node pair whose edge probability is largest,
+                    # among the edges not already added as causal edges
+                    src, tgt = [(i, j)
+                                for i in range(num_feats)
+                                for j in range(num_feats)
+                                if (i, j) not in added_edges
+                                and edge_probs[i, j] == max_prob][0]
 
                     # Get the existing causal edge indices
                     causal_edge_index = (graph_data['feat', 'implies', 'feat']
                                          .edge_index)
 
                     # Add the new causal edge
+                    new_edge = torch.tensor([[src], [tgt]])
                     causal_edge_index = torch.cat((causal_edge_index,
-                                                   torch.tensor([[src, tgt]])),
+                                                   new_edge),
                                                   dim=1)
                     graph_data['feat', 'implies', 'feat'].edge_index = \
                         causal_edge_index
+
+        # Get the causal edges
+        causal_edges = graph_data['feat', 'implies', 'feat'].edge_index.numpy()
+
+        # Convert the causal edges to an adjacency matrix
+        adj_matrix = np.zeros((num_feats, num_feats))
+        adj_matrix[causal_edges[0], causal_edges[1]] = 1
+
+        # Return the adjacency matrix of the predicted CPDAG
+        return adj_matrix
 
 
 if __name__ == '__main__':
