@@ -53,13 +53,18 @@ class CPDAGDataset(IterableDataset):
             data_matrix = self._gaussian_sampler.sample(dag,
                                                         self.num_data_points)
 
-            # Get the edge_index of the CPDAG
-            cpdag_edge_idx, _ = from_scipy_sparse_matrix(cpdag)
+            # Calculate the correlation matrix of `data_matrix`, and convert it
+            # to a PyTorch tensor of shape
+            # (2, num_data_points * num_data_points)
+            corr_matrix = np.corrcoef(data_matrix.T)
+            corr_matrix = (torch.from_numpy(corr_matrix)
+                                .view(2, -1)
+                                .float())
 
             # Organise the input as a PyG graph, to be inputted to the model
             graph_data = Data()
             graph_data.x = torch.tensor(data_matrix.T).float()
-            graph_data.edge_index = cpdag_edge_idx
+            graph_data.edge_index = corr_matrix
 
             # Convert the cpdag adjacency matrix to a PyTorch tensor
             cpdag = torch.from_numpy(cpdag.todense()).float()
