@@ -24,7 +24,12 @@ class DAGSampler:
         try:
             self.num_variables = config.num_variables
         except AttributeError:
-            self.num_variables = None
+            start = config.num_variables_range[0]
+            end = config.num_variables_range[1]
+            if start + 1 == end
+                self.num_variables = start
+            else:
+                self.num_variables = None
 
         # Set up the random number generator
         self._rng = np.random.default_rng()
@@ -125,5 +130,4 @@ if __name__ == '__main__':
     dag_sampler = DAGSampler(config)
 
     dag, cpdag = dag_sampler.sample()
-    print(dag, cpdag)
     dag_sampler.sample_many(1_000)
