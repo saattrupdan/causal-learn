@@ -26,7 +26,7 @@ class DAGSampler:
         except AttributeError:
             start = config.num_variables_range[0]
             end = config.num_variables_range[1]
-            if start + 1 == end
+            if start + 1 == end:
                 self.num_variables = start
             else:
                 self.num_variables = None
