@@ -215,15 +215,14 @@ class CausalDiscoverer(nn.Module):
 
 
 if __name__ == '__main__':
-    from data import CorrDataset
+    from data import CPDAGDataset
+    from config import Config
     from torch_geometric.loader import DataLoader
 
-    # Load the data and set up a dataloader
-    dataset = CorrDataset()
+    config = Config()
+    model = CausalDiscoverer(config)
+    dataset = CPDAGDataset(config)
     dataloader = DataLoader(dataset)
-
-    # Initialise the model
-    model = CausalDiscoverer(dim=16, dropout=0.5)
 
     # Pass some data through the model
     for batch in dataloader:

@@ -210,9 +210,11 @@ class GaussianDataSampler:
 
 if __name__ == '__main__':
     from dag_sampler import DAGSampler
+    from config import Config
 
-    dag_sampler = DAGSampler(num_variables=5)
-    gaussian_sampler = GaussianDataSampler(num_data_points=10)
+    config = Config()
+    dag_sampler = DAGSampler(config)
+    gaussian_sampler = GaussianDataSampler(config)
 
     dag, cpdag = dag_sampler.sample()
     samples = gaussian_sampler.sample(dag)

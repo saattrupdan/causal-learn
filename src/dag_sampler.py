@@ -119,8 +119,11 @@ class DAGSampler:
 
 
 if __name__ == '__main__':
-    # Test the DAG sampler
-    dag_sampler = DAGSampler(num_variables=5)
+    from config import Config
+
+    config = Config()
+    dag_sampler = DAGSampler(config)
+
     dag, cpdag = dag_sampler.sample()
     print(dag, cpdag)
     dag_sampler.sample_many(1_000)

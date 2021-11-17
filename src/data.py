@@ -76,8 +76,10 @@ if __name__ == '__main__':
     from tqdm.auto import tqdm
     from itertools import islice
     from torch_geometric.loader import DataLoader
+    from config import Config
 
-    dataset = CorrDataset()
+    config = Config()
+    dataset = CPDAGDataset(config)
     dataloader = DataLoader(dataset)
 
     for batch in dataloader:
