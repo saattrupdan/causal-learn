@@ -8,7 +8,7 @@ class Config:
     '''Config class used to store all hyperparameters'''
 
     # Dataset hyperparameters
-    num_variables_range: Tuple[int, int] = (20, 20)
+    num_variables_range: Tuple[int, int] = (10, 10)
     num_data_points : int = 10_000
 
     # Model hyperparameters
