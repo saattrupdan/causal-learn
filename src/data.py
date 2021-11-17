@@ -88,8 +88,9 @@ if __name__ == '__main__':
     dataloader = DataLoader(dataset)
 
     for batch in dataloader:
-        data = batch
+        data, y = batch
         print(data)
+        print(y)
         break
 
     with tqdm(total=100) as pbar:
