@@ -35,21 +35,17 @@ class CausalDiscoverer(nn.Module):
         super().__init__()
         self.dim = config.dim
         self.dropout = config.dropout
-        self.conv1 = tgnn.GINConv(
-            nn.Sequential(nn.Linear(config.num_data_points, config.dim),
-                          nn.LayerNorm(config.dim),
-                          nn.GELU(),
-                          nn.Dropout(config.dropout),
-                          nn.Linear(config.dim, config.dim))
-        )
-        self.conv2 = tgnn.GINConv(
-            nn.Sequential(nn.Linear(config.dim, config.dim),
-                          nn.LayerNorm(config.dim),
-                          nn.GELU(),
-                          nn.Dropout(config.dropout),
-                          nn.Linear(config.dim, config.dim))
-        )
-        self.edge_mlp = nn.Sequential(nn.Linear(config.dim * 2, config.dim),
+
+        self.convs = nn.ModuleList()
+        for _ in range(config.num_layers):
+            mlp = nn.Sequential(nn.Linear(-1, config.dim),
+                                nn.LayerNorm(config.dim),
+                                nn.GELU(),
+                                nn.Dropout(config.dropout),
+                                nn.Linear(config.dim, config.dim))
+            self.convs.append(tgnn.GINEConv(nn=mlp, edge_dim=1))
+
+        self.edge_mlp = nn.Sequential(nn.Linear(config.dim * 3, config.dim),
                                       nn.LayerNorm(config.dim),
                                       nn.GELU(),
                                       nn.Dropout(config.dropout),
@@ -90,19 +86,21 @@ class CausalDiscoverer(nn.Module):
             edge_index = edge_index
 
         # Apply convolutional layers to get the node features
-        x = self.conv1(x, edge_index)
-        x = self.conv2(x, edge_index)
+        for conv in self.convs:
+            x = conv(x, edge_index)
 
         # Extract edge features from the node features. This concatenates every
         # pair of node features in `x`, ending up with a tensor of shape
-        # (num_nodes, num_nodes, `self.dim` * 2)
+        # (num_nodes, num_nodes, `self.dim` * 3)
         num_nodes = x.size(0)
-        edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 2))
-        edge_feats[:, :, :self.dim] = (x.repeat(1, num_nodes)
+        d = self.dim
+        edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 3))
+        edge_feats[:, :, :d] = (x.repeat(1, num_nodes)
                                         .view(num_nodes, num_nodes, self.dim))
-        edge_feats[:, :, self.dim:] = (x.repeat(1, num_nodes)
-                                        .view(num_nodes, num_nodes, self.dim)
-                                        .transpose(0, 1))
+        edge_feats[:, :, d:2*d] = (x.repeat(1, num_nodes)
+                                    .view(num_nodes, num_nodes, self.dim)
+                                    .transpose(0, 1))
+        edge_feats[:, :, 2*d:] = x @ x.T
 
         # Move edge_feats to GPU if it's present
         if torch.cuda.is_available():
