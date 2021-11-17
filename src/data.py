@@ -43,7 +43,7 @@ class CPDAGDataset(IterableDataset):
             # `self.num_variables_range`
             num_variables = self._rng.integers(
                 low=self.num_variables_range[0],
-                high=self.num_variables_range[1]
+                high=self.num_variables_range[1] + 1
             )
 
             # Sample the DAG and CPDAG
