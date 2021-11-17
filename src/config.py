@@ -8,12 +8,13 @@ class Config:
     '''Config class used to store all hyperparameters'''
 
     # Dataset hyperparameters
-    num_variables_range: Tuple[int, int] = (2, 10)
-    num_data_points : int = 1_000
+    num_variables_range: Tuple[int, int] = (20, 20)
+    num_data_points : int = 10_000
 
     # Model hyperparameters
-    dim: int = 500
+    dim: int = 100
     dropout: float = 0.1
+    num_layers: int = 2
 
     # Training hyperparameters
     num_iterations: int = 1_000_000
