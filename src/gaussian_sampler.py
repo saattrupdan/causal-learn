@@ -220,8 +220,9 @@ if __name__ == '__main__':
     gaussian_sampler = GaussianDataSampler(config)
 
     dag, cpdag = dag_sampler.sample()
-    samples = gaussian_sampler.sample(dag)
+    print(dag)
 
+    samples = gaussian_sampler.sample(dag)
     print(samples)
 
     gaussian_sampler.sample_many([dag] * 50_000)
