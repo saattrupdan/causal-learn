@@ -20,7 +20,10 @@ class GaussianDataSampler:
     '''
 
     def __init__(self, config: Config):
-        self.num_data_points = config.num_data_points
+        try:
+            self.num_data_points = config.num_data_points
+        except AttributeError:
+            self.num_data_points = None
 
         # Set up the random number generator
         self._rng = np.random.default_rng()
