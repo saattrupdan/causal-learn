@@ -84,7 +84,7 @@ class DAGSampler:
         # Extract the CPDAG from the DAG, as a sparse adjacency matrix
         cpdag = sparse.csr_matrix(dag.cpdag().to_amat()[0])
 
-        return dag, cpdag
+        return adj_matrix, cpdag
 
     def sample_many(self,
                     num_samples: int,
@@ -125,9 +125,12 @@ class DAGSampler:
 
 if __name__ == '__main__':
     from config import Config
+    import time
 
     config = Config()
     dag_sampler = DAGSampler(config)
 
+    start = time.time()
     dag, cpdag = dag_sampler.sample()
+    print(f'Time taken: {time.time() - start}')
     dag_sampler.sample_many(1_000)
