@@ -55,16 +55,21 @@ class CPDAGDataset(IterableDataset):
 
             # Calculate the correlation matrix of `data_matrix`, and convert it
             # to a PyTorch tensor of shape
-            # (2, num_data_points * num_data_points)
-            corr_matrix = np.corrcoef(data_matrix.T)
-            corr_matrix = (torch.from_numpy(corr_matrix)
-                                .view(2, -1)
-                                .float())
+            # (num_data_points * num_data_points, 1)
+            corr_matrix = np.corrcoef(data_matrix)
+            corr_matrix = torch.from_numpy(corr_matrix).view(-1, 1).float()
+
+            # Standardise the data_matrix, as otherwise the task would become
+            # too easy, in that the causal dependents would have a larger
+            # variance, by construction
+            data_matrix -= data_matrix.mean(axis=0)
+            data_matrix /= data_matrix.std(axis=0)
 
             # Organise the input as a PyG graph, to be inputted to the model
             graph_data = Data()
-            graph_data.x = torch.tensor(data_matrix.T).float()
-            graph_data.edge_index = corr_matrix
+            graph_data.x = torch.tensor(data_matrix).float()
+            graph_data.edge_index = torch.ones(2, num_variables ** 2).long()
+            graph_data.edge_attr = corr_matrix
 
             # Convert the cpdag adjacency matrix to a PyTorch tensor
             cpdag = torch.from_numpy(cpdag.todense()).float()
