@@ -37,15 +37,16 @@ class CausalDiscoverer(nn.Module):
         self.dropout = config.dropout
 
         self.convs = nn.ModuleList()
-        for _ in range(config.num_layers):
-            mlp = nn.Sequential(nn.Linear(-1, config.dim),
+        for idx in range(config.num_layers):
+            input_dim = config.num_data_points if idx == 0 else config.dim
+            mlp = nn.Sequential(nn.Linear(input_dim, config.dim),
                                 nn.LayerNorm(config.dim),
                                 nn.GELU(),
                                 nn.Dropout(config.dropout),
                                 nn.Linear(config.dim, config.dim))
             self.convs.append(tgnn.GINEConv(nn=mlp, edge_dim=1))
 
-        self.edge_mlp = nn.Sequential(nn.Linear(config.dim * 3, config.dim),
+        self.edge_mlp = nn.Sequential(nn.Linear(config.dim*2+1, config.dim),
                                       nn.LayerNorm(config.dim),
                                       nn.GELU(),
                                       nn.Dropout(config.dropout),
@@ -71,36 +72,24 @@ class CausalDiscoverer(nn.Module):
                 The edge probabilities
         '''
         # Extract the graph data
-        x, edge_index = data.x, data.edge_index
-
-        # Drop causal edges if training
-        if self.training:
-
-            # Sample causal dropout rate from Unif[0, 1], using `self._rng`
-            causal_dropout = self._rng.uniform(0, 1)
-
-            # Dropout causal edges with probability `causal_dropout`
-            edge_index, _ = dropout_adj(edge_index=edge_index,
-                                        p=causal_dropout,
-                                        training=self.training)
-            edge_index = edge_index
+        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
 
         # Apply convolutional layers to get the node features
         for conv in self.convs:
-            x = conv(x, edge_index)
+            x = conv(x, edge_index, edge_attr)
 
         # Extract edge features from the node features. This concatenates every
         # pair of node features in `x`, ending up with a tensor of shape
-        # (num_nodes, num_nodes, `self.dim` * 3)
+        # (num_nodes, num_nodes, `self.dim` * 2 + 1)
         num_nodes = x.size(0)
         d = self.dim
-        edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 3))
+        edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 2 + 1))
         edge_feats[:, :, :d] = (x.repeat(1, num_nodes)
                                         .view(num_nodes, num_nodes, self.dim))
-        edge_feats[:, :, d:2*d] = (x.repeat(1, num_nodes)
-                                    .view(num_nodes, num_nodes, self.dim)
-                                    .transpose(0, 1))
-        edge_feats[:, :, 2*d:] = x @ x.T
+        edge_feats[:, :, d:-1] = (x.repeat(1, num_nodes)
+                                   .view(num_nodes, num_nodes, self.dim)
+                                   .transpose(0, 1))
+        edge_feats[:, :, -1] = x @ x.T
 
         # Move edge_feats to GPU if it's present
         if torch.cuda.is_available():
@@ -226,6 +215,6 @@ if __name__ == '__main__':
     for batch in dataloader:
         data, y = batch
         probabilities = model(data)
-        print(probabilities)
-        print(y)
+        print(probabilities.shape)
+        print(y.shape)
         break
