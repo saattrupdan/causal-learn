@@ -1,8 +1,7 @@
 '''Class that samples Gaussian data according to a DAG'''
 
 import numpy as np
-from causaldag import DAG
-from typing import Optional, List
+from typing import Optional, Union, Tuple, List
 import multiprocessing as mp
 from tqdm.auto import tqdm
 
@@ -28,87 +27,52 @@ class GaussianDataSampler:
         # Set up the random number generator
         self._rng = np.random.default_rng()
 
-    def _sample_noise(self) -> float:
+    def _sample_noise(self, num_data_points: int) -> float:
         '''Samples a noise value.
 
         This samples sigma ~ Unif[0.5, 2] and epsilon ~ N(0, sigma^2), and
         returns epsilon.
 
+        Args:
+            num_data_points (int):
+                The number of data points to sample.
+
         Returns:
             float: The sampled noise.
         '''
         sigma = self._rng.uniform(0.5, 2)
-        epsilon = self._rng.normal(0, sigma**2)
+        epsilon = self._rng.normal(0, sigma**2, size=num_data_points)
         return epsilon
 
-    def _sample_regression_coefficient(self) -> float:
+    def _sample_regression_coefficients(self,
+            size: Optional[Union[int, Tuple[int]]] = None
+            ) -> Union[float, np.ndarray]:
         '''Samples a regression coefficient.
 
         This samples b_sign from {-1, 1} with probability 0.4 and 0.6,
         respectively. It then samples b_val from Unif[0.1, 2] and returns the
         product of these.
 
+        Args:
+            size (int, pair of ints or None, optional):
+                The size of the array to sample. If None then a single value
+                will be sampled. Defaults to None.
+
         Returns:
-            float: The sampled coefficient.
+            float or NumPy array:
+                The sampled coefficient(s).
         '''
         # Sample the sign
-        b_sign = self._rng.choice([-1, 1], p=[0.4, 0.6])
+        b_sign = self._rng.choice([-1, 1], p=[0.4, 0.6], size=size)
 
         # Sample the value
-        b_val = self._rng.uniform(0.1, 2)
+        b_val = self._rng.uniform(0.1, 2, size=size)
 
         # Return the product
         return b_sign * b_val
 
-    def _sample_data(self,
-                     node: int,
-                     dag: DAG,
-                     data: np.ndarray,
-                     num_data_points: int) -> np.ndarray:
-        '''Samples data for a node.
-
-        Args:
-            node (int): The node to sample data for.
-            dag (DAG): The DAG to sample data from.
-            data (NumPy array): The sampled data.
-            num_data_points (int): The number of data points to sample.
-
-        Returns:
-            NumPy array: The sampled data.
-        '''
-        # Get the parents of the node
-        parents = dag.parents_of(node)
-
-        # Get the noise value for the node
-        node_data = np.array([self._sample_noise()
-                              for _ in range(num_data_points)])
-
-        # Add the contributions from the parents
-        for parent in parents:
-
-            # Sample the regression coefficients
-            coeff = self._sample_regression_coefficient()
-
-            # Get the data from the parent
-            parent_data = self._sample_data(node=parent,
-                                            dag=dag,
-                                            data=data,
-                                            num_data_points=num_data_points)
-
-            # Compute the contribution from the parent
-            parent_contrib = coeff * parent_data[parent]
-
-            # Add the contribution from the parent to the node data
-            node_data += parent_contrib
-
-        # Add the node data to the data array
-        data[node] = node_data
-
-        # Return the data
-        return data
-
     def sample(self,
-               dag: DAG,
+               dag: np.ndarray,
                num_data_points: Optional[int] = None) -> np.ndarray:
         '''Samples data according to the DAG.
 
@@ -120,8 +84,10 @@ class GaussianDataSampler:
         We repeat this for all the parents.
 
         Args:
-            dag (DAG):
-                The DAG to sample data from.
+            dag (NumPy array):
+                The DAG to sample data from, as an adjacency matrix of shape
+                (num_variables, num_variables). This is expected to be sampled
+                from DAGSampler, in that it is a lower triangular matrix.
             num_data_points (int, optional):
                 The number of data points to sample. If None then
                 `self.num_data_points` will be used. Defaults to None.
@@ -129,7 +95,7 @@ class GaussianDataSampler:
         Returns:
             NumPy array:
                 The sampled data, organised as a NumPy array with shape
-                (num_data_points, num_nodes).
+                (num_nodes, num_data_points).
 
         Raises:
             ValueError:
@@ -146,43 +112,46 @@ class GaussianDataSampler:
         if num_data_points is None:
             num_data_points = self.num_data_points
 
-        # Collect the sink nodes in the DAG
-        sink_nodes = list(dag.sinks())
-
-        # Add a new node to the DAG, which becomes the unique sink node
-        new_node_index = dag.nnodes
-        dag.add_node(new_node_index)
-        for sink_node in sink_nodes:
-            dag.add_arc(sink_node, new_node_index)
-
         # Initialise the data array
-        data = np.zeros((dag.nnodes, num_data_points))
+        data = np.zeros((dag.shape[0], num_data_points))
 
-        # Sample the data from the new unique sink node, which will recursively
-        # sample the data from all the parents
-        data = self._sample_data(node=new_node_index,
-                                 dag=dag,
-                                 data=data,
-                                 num_data_points=num_data_points)
+        # Sample the data
+        for var_idx in range(dag.shape[0]):
 
-        # Remove the new node from the data
-        data = data[:-1]
+            # Sample the data for the variable and store it
+            noise = self._sample_noise(num_data_points)
+            data[var_idx, :] = noise
 
-        # Transpose the data matrix to end up with a matrix of shape
-        # (num_data_points, num_nodes)
-        data = data.T
+            # Get the parents of the variable
+            parents = np.nonzero(dag[var_idx, :var_idx])[0]
+
+            # If the variable has parents then compute the parents'
+            # contribution to the data
+            if parents.shape[0] > 0:
+
+                # Sample regression coefficients for the parents
+                coeffs = self._sample_regression_coefficients(size=len(parents))
+
+                # Compute the contribution from the parents
+                prod = np.expand_dims(coeffs, -1) * data[parents, :]
+                parents_contrib = np.sum(prod, axis=0)
+
+                # Add the parents' contribution to the data
+                data[var_idx, :] += parents_contrib
 
         # Return the data
         return data
 
     def sample_many(self,
-                    dags: List[DAG],
+                    dags: List[np.ndarray],
                     num_workers: int = -1) -> List[np.ndarray]:
         '''Samples data according to the DAG.
 
         Args:
-            dags (list of DAG):
-                The DAGs to sample data from.
+            dags (list of NumPy arrays):
+                The DAGs to sample data from, as an adjacency matrix of shape
+                (num_variables, num_variables). This is expected to be sampled
+                from DAGSampler, in that it is a lower triangular matrix.
             num_workers (int, optional):
                 Number of workers to use for parallel sampling. If set to -1
                 then the number of workers will be set to the number of CPUs
@@ -214,15 +183,18 @@ class GaussianDataSampler:
 if __name__ == '__main__':
     from dag_sampler import DAGSampler
     from config import Config
+    import time
 
     config = Config()
     dag_sampler = DAGSampler(config)
     gaussian_sampler = GaussianDataSampler(config)
 
+    t0 = time.time()
     dag, cpdag = dag_sampler.sample()
-    print(dag)
+    print(f'Time to sample DAG: {time.time() - t0}')
 
+    t0 = time.time()
     samples = gaussian_sampler.sample(dag)
-    print(samples)
+    print(f'Time to sample data: {time.time() - t0}')
 
-    gaussian_sampler.sample_many([dag] * 50_000)
+    gaussian_sampler.sample_many([dag] * 1_000)
