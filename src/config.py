@@ -8,22 +8,24 @@ class Config:
     '''Config class used to store all hyperparameters'''
 
     # Dataset hyperparameters
-    num_variables_range: Tuple[int, int] = (20, 20)
-    num_data_points : int = 10_000
+    num_variables_range: Tuple[int, int] = (5, 5)
+    num_data_points: int = 10_000
 
     # Model hyperparameters
-    dim: int = 100
-    dropout: float = 0.1
-    num_layers: int = 2
+    dim: int = 300
+    dropout: float = 0.0
+    num_layers: int = 6
+    num_heads: int = 1
 
     # Training hyperparameters
     num_iterations: int = 1_000_000
     lr: float = 3e-4
+    lr_decay_factor: float = 0.9997
     batch_size: int = 32
     threshold: float = 0.5
 
     # Metric hyperparameters
-    ema_decay: float = 0.999
+    ema_decay: float = 0.995
 
     # Miscellaneous hyperparameters
     _datetime = dt.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
