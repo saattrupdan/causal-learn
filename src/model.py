@@ -38,13 +38,19 @@ class CausalDiscoverer(nn.Module):
 
         self.convs = nn.ModuleList()
         for idx in range(config.num_layers):
-            input_dim = config.num_data_points if idx == 0 else config.dim
+            dim = config.dim # // config.num_heads
+            input_dim = config.num_data_points if idx == 0 else dim
             mlp = nn.Sequential(nn.Linear(input_dim, config.dim),
                                 nn.LayerNorm(config.dim),
                                 nn.GELU(),
                                 nn.Dropout(config.dropout),
                                 nn.Linear(config.dim, config.dim))
             self.convs.append(tgnn.GINEConv(nn=mlp, edge_dim=1))
+            # self.convs.append(tgnn.GATConv(in_channels=input_dim,
+            #                                out_channels=dim,
+            #                                heads=config.num_heads,
+            #                                edge_dim=1,
+            #                                fill_value='add'))
 
         self.edge_mlp = nn.Sequential(nn.Linear(config.dim*2+1, config.dim),
                                       nn.LayerNorm(config.dim),
