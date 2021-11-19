@@ -75,6 +75,11 @@ def train(config: Config):
     # Define the optimiser
     optimiser = opt.AdamW(model.parameters(), lr=config.lr)
 
+    # Define the learning rate scheduler
+    lr_fn = lambda _: config.lr_decay_factor
+    scheduler = opt.lr_scheduler.MultiplicativeLR(optimiser,
+                                                  lr_lambda=lr_fn)
+
     # Initialise the exponentially moving average of the loss and metrics
     ema_loss = 1.
     ema_f1 = 0.
@@ -139,8 +144,14 @@ def train(config: Config):
                 # Update the optimiser
                 optimiser.step()
 
+                # Update the learning rate
+                scheduler.step()
+
                 # Zero the gradients
                 optimiser.zero_grad()
+
+                # Get the current learning rate
+                lr = optimiser.param_groups[0]["lr"]
 
                 # Update the progress bar
                 pbar.set_description(
@@ -148,7 +159,8 @@ def train(config: Config):
                     f'F1 score {100 * ema_f1:.2f} - '
                     f'Precision {100 * ema_precision:.2f} - '
                     f'Recall {100 * ema_recall:.2f} - '
-                    f'Specificity {100 * ema_specificity:.2f}'
+                    f'Specificity {100 * ema_specificity:.2f} - '
+                    f'Learning rate {1_000_000 * lr:.0f}e-6'
                 )
 
     # Save the config
