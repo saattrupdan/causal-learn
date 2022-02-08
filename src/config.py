@@ -9,7 +9,7 @@ class Config(BaseModel):
     '''Config class used to store all hyperparameters'''
 
     # Dataset hyperparameters
-    num_variables_range: Tuple[int, int] = (10, 10)
+    num_variables_range: Tuple[int, int] = (20, 20)
     num_data_points: int = 10_000
     sparsity_interval: Tuple[float, float] = (0.0, 0.8)
 
@@ -23,8 +23,8 @@ class Config(BaseModel):
     num_iterations: int = 100_000
     lr: float = 3e-4
     lr_decay_factor: float = 0.9999
-    batch_size: int = 32
-    threshold: float = 0.4
+    batch_size: int = 1
+    threshold: float = 0.5
 
     # Metric hyperparameters
     ema_decay: float = 0.999  # Corresponding to averaging last 1000 steps
