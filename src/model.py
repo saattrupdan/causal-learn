@@ -43,7 +43,13 @@ class CausalDiscoverer(nn.Module):
             conv = tgnn.GATv2Conv(input_dim, config.dim, add_self_loops=True)
             self.convs.append(conv)
 
-        self.clf = nn.Sequential(nn.Linear(config.dim, 1),
+        self.clf = nn.Sequential(nn.Linear(config.dim, config.dim),
+                                 nn.LayerNorm(config.dim),
+                                 nn.GELU(),
+                                 nn.Linear(config.dim, config.dim),
+                                 nn.LayerNorm(config.dim),
+                                 nn.GELU(),
+                                 nn.Linear(config.dim, 1),
                                  nn.Sigmoid())
 
         # self.edge_mlp = nn.Sequential(nn.Linear(config.dim*2, config.dim),
