@@ -21,6 +21,7 @@ class DAGSampler:
         num_variables (int or None): Number of variables in the DAGs.
     '''
     def __init__(self, config: Config):
+        self.config = config
         try:
             self.num_variables = config.num_variables
         except AttributeError:
@@ -66,8 +67,8 @@ class DAGSampler:
         # Initialize the adjacency matrix as a lower triangular matrix of ones
         adj_matrix = np.tril(np.ones((num_variables, num_variables)))
 
-        # Sample the sparsity from Unif[0, 0.8]
-        sparsity = self._rng.uniform(0, 0.8)
+        # Sample the sparsity
+        sparsity = self._rng.uniform(*self.config.sparsity_interval)
 
         # For each non-zero entry in the adjacency matrix, sample a Bernoulli
         # variable with probability `sparsity` and set the entry to 0 if the

@@ -2,7 +2,6 @@
 
 import torch_geometric.nn as tgnn
 from torch_geometric.data import Data
-from torch_geometric.utils.dropout import dropout_adj
 import numpy as np
 import pandas as pd
 import torch
@@ -38,30 +37,25 @@ class CausalDiscoverer(nn.Module):
 
         self.convs = nn.ModuleList()
         for idx in range(config.num_layers):
-            dim = config.dim # // config.num_heads
-            input_dim = config.num_data_points if idx == 0 else dim
-            mlp = nn.Sequential(nn.Linear(input_dim, config.dim),
-                                nn.LayerNorm(config.dim),
-                                nn.GELU(),
-                                nn.Dropout(config.dropout),
-                                nn.Linear(config.dim, config.dim))
-            self.convs.append(tgnn.GINEConv(nn=mlp, edge_dim=1))
-            # self.convs.append(tgnn.GATConv(in_channels=input_dim,
-            #                                out_channels=dim,
-            #                                heads=config.num_heads,
-            #                                edge_dim=1,
-            #                                fill_value='add'))
+            dim = config.dim
+            start_dim = 1
+            input_dim = start_dim if idx == 0 else dim
+            conv = tgnn.GATv2Conv(input_dim, config.dim, add_self_loops=True)
+            self.convs.append(conv)
 
-        self.edge_mlp = nn.Sequential(nn.Linear(config.dim*2+1, config.dim),
-                                      nn.LayerNorm(config.dim),
-                                      nn.GELU(),
-                                      nn.Dropout(config.dropout),
-                                      nn.Linear(config.dim, config.dim),
-                                      nn.LayerNorm(config.dim),
-                                      nn.GELU(),
-                                      nn.Dropout(config.dropout),
-                                      nn.Linear(config.dim, 1),
-                                      nn.Sigmoid())
+        self.clf = nn.Sequential(nn.Linear(config.dim, 1),
+                                 nn.Sigmoid())
+
+        # self.edge_mlp = nn.Sequential(nn.Linear(config.dim*2, config.dim),
+        #                               nn.LayerNorm(config.dim),
+        #                               nn.GELU(),
+        #                               nn.Dropout(config.dropout),
+        #                               nn.Linear(config.dim, config.dim),
+        #                               nn.LayerNorm(config.dim),
+        #                               nn.GELU(),
+        #                               nn.Dropout(config.dropout),
+        #                               nn.Linear(config.dim, 1),
+        #                               nn.Sigmoid())
 
         # Initialise a random generator
         self._rng = np.random.default_rng()
@@ -78,34 +72,40 @@ class CausalDiscoverer(nn.Module):
                 The edge probabilities
         '''
         # Extract the graph data
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        x, edge_index = data.x, data.edge_index
 
         # Apply convolutional layers to get the node features
         for conv in self.convs:
-            x = conv(x, edge_index, edge_attr)
+            x = conv(x=x, edge_index=edge_index)
+
+        # Apply the MLP to get the edge probabilities
+        edge_probs = self.clf(x)
 
         # Extract edge features from the node features. This concatenates every
         # pair of node features in `x`, ending up with a tensor of shape
-        # (num_nodes, num_nodes, `self.dim` * 2 + 1)
-        num_nodes = x.size(0)
-        d = self.dim
-        edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 2 + 1))
-        edge_feats[:, :, :d] = (x.repeat(1, num_nodes)
-                                        .view(num_nodes, num_nodes, self.dim))
-        edge_feats[:, :, d:-1] = (x.repeat(1, num_nodes)
-                                   .view(num_nodes, num_nodes, self.dim)
-                                   .transpose(0, 1))
-        edge_feats[:, :, -1] = x @ x.T
+        # (num_nodes, num_nodes, `self.dim` * 2)
+        # num_nodes = x.size(0)
+        # d = self.dim
+        # edge_feats = torch.zeros((num_nodes, num_nodes, self.dim * 2))
+        # edge_feats[:, :, :d] = (x.repeat(1, num_nodes)
+        #                                 .view(num_nodes, num_nodes, self.dim))
+        # edge_feats[:, :, d:] = (x.repeat(1, num_nodes)
+        #                          .view(num_nodes, num_nodes, self.dim)
+        #                          .transpose(0, 1))
 
-        # Move edge_feats to GPU if it's present
-        if torch.cuda.is_available():
-            edge_feats = edge_feats.cuda()
+        # # Sanity check
+        # assert (edge_feats[0, 1, :d] == x[0]).all()
+        # assert (edge_feats[0, 1, d:] == x[1]).all()
 
-        # Apply the MLP to get the edge probabilities, ending up with a tensor
-        # of shape (num_nodes, num_nodes)
-        edge_probs = self.edge_mlp(edge_feats).squeeze(-1)
+        # # Move edge_feats to GPU if it's present
+        # if torch.cuda.is_available():
+        #     edge_feats = edge_feats.cuda()
 
-        # Return the edge probabilities
+        # # Apply the MLP to get the edge probabilities, ending up with a tensor
+        # # of shape (num_nodes, num_nodes)
+        # edge_probs = self.edge_mlp(edge_feats).squeeze(-1)
+
+        # # Return the edge probabilities
         return edge_probs
 
     def predict(self,

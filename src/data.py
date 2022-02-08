@@ -4,6 +4,7 @@ from torch.utils.data import IterableDataset
 from torch_geometric.data import Data
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 import numpy as np
+import scipy
 import torch
 
 from dag_sampler import DAGSampler
@@ -57,19 +58,49 @@ class CPDAGDataset(IterableDataset):
             # to a PyTorch tensor of shape
             # (num_data_points * num_data_points, 1)
             corr_matrix = np.corrcoef(data_matrix)
-            corr_matrix = torch.from_numpy(corr_matrix).view(-1, 1).float()
+            corr_matrix = torch.from_numpy(corr_matrix)
 
             # Standardise the data_matrix, as otherwise the task would become
             # too easy, in that the causal dependents would have a larger
             # variance, by construction
-            data_matrix -= data_matrix.mean(axis=0)
-            data_matrix /= data_matrix.std(axis=0)
+            # data_matrix -= data_matrix.mean(axis=0)
+            # data_matrix /= data_matrix.std(axis=0)
+
+            # Set up the "edges as nodes"
+            num_pairs = scipy.special.comb(num_variables, 2, exact=True)
+            node_feats = torch.zeros(num_pairs, 1)
+
+            # Set up a matrix that enumerates the "edges as nodes" in the
+            # correlation matrix. This will make it easier to locate the
+            # relations between the nodes. Also populate `node_feats` with the
+            # correlation values.
+            node_enum = torch.zeros(num_variables, num_variables)
+            idx = 0
+            for i in range(num_variables):
+                for j in range(i):
+                    node_enum[i, j] = idx
+                    node_feats[idx] = corr_matrix[i, j]
+                    idx += 1
+            node_enum = node_enum + node_enum.t()
+            node_enum[torch.eye(num_variables).bool()] = -1
+
+            # Populate the adjacency matrix
+            adj_matrix = torch.zeros(num_pairs, num_pairs)
+            for i in range(num_pairs):
+                row, col = (node_enum == i).nonzero()[0]
+                neighbors = set(node_enum[row, :].int().tolist() +
+                                node_enum[:, col].int().tolist())
+                neighbors.remove(-1)
+                adj_matrix[i, list(neighbors)] = 1
+                adj_matrix[list(neighbors), i] = 1
+
+            # Convert adjacency matrix to an edge list
+            edge_index = adj_matrix.gt(0).nonzero().t().long()
 
             # Organise the input as a PyG graph, to be inputted to the model
             graph_data = Data()
-            graph_data.x = torch.tensor(data_matrix).float()
-            graph_data.edge_index = torch.ones(2, num_variables ** 2).long()
-            graph_data.edge_attr = corr_matrix
+            graph_data.x = node_feats
+            graph_data.edge_index = edge_index
 
             # Convert the cpdag adjacency matrix to a PyTorch tensor
             cpdag = torch.from_numpy(cpdag.todense()).float()

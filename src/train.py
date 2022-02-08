@@ -23,7 +23,7 @@ def train(config: Config):
     model_dir = Path(config.model_dir)
 
     # Create the model directory if it doesn't exist
-    if not model_dir.exists():
+    if not model_dir.exists() and config.save_model:
         model_dir.mkdir()
 
     # Set the model and config paths
@@ -42,7 +42,7 @@ def train(config: Config):
         model.cuda()
 
     # Load the model weights if they exist
-    if model_path.exists():
+    if model_path.exists() and config.save_model:
         model.load_state_dict(torch.load(model_path))
 
     # Set the model to training mode
@@ -63,14 +63,16 @@ def train(config: Config):
     f1_metric = tm.F1(threshold=config.threshold)
     precision_metric = tm.Precision(threshold=config.threshold)
     recall_metric = tm.Recall(threshold=config.threshold)
-    specificity_metric = tm.Specificity(threshold=config.threshold)
+    npv_metric = tm.Precision(threshold=config.threshold)
+    prc_metric = tm.PrecisionRecallCurve()
+    auc_metric = tm.AUC(reorder=True)
 
     # Move metrics to the GPU if it is available
     if torch.cuda.is_available():
         f1_metric.cuda()
         precision_metric.cuda()
         recall_metric.cuda()
-        specificity_metric.cuda()
+        npv_metric.cuda()
 
     # Define the optimiser
     optimiser = opt.AdamW(model.parameters(), lr=config.lr)
@@ -85,7 +87,8 @@ def train(config: Config):
     ema_f1 = 0.
     ema_precision = 0.
     ema_recall = 0.
-    ema_specificity = 0.
+    ema_npv = 0.
+    ema_auprc = 0.
 
     # Set up a progress bar
     with tqdm(enumerate(it.islice(dataloader, config.num_iterations)),
@@ -95,6 +98,7 @@ def train(config: Config):
         # Train the model
         for iter_idx, batch in pbar:
             data, y = batch
+            y = y.squeeze(0)
 
             # Move the data to the GPU if it is available
             if torch.cuda.is_available():
@@ -102,18 +106,23 @@ def train(config: Config):
                 y = y.cuda()
 
             # Forward pass
-            edge_probabilities = model(data)
+            edge_probabilities = model(data).squeeze(1)
+
+            # Convert labels to their skeletons
+            y = (y + y.t()).gt(0).float()
+            y = (y + 1).tril(diagonal=-1)
+            y = y[y > 0] - 1
 
             # Calculate the loss
-            loss = F.binary_cross_entropy(edge_probabilities, y.squeeze(0))
+            loss = F.binary_cross_entropy(edge_probabilities, y)
 
             # Compute the metrics
-            f1 = f1_metric(edge_probabilities, y.squeeze(0).int())
-            precision = precision_metric(edge_probabilities,
-                                         y.squeeze(0).int())
-            recall = recall_metric(edge_probabilities, y.squeeze(0).int())
-            specificity = specificity_metric(edge_probabilities,
-                                             y.squeeze(0).int())
+            f1 = f1_metric(edge_probabilities, y.int())
+            precision = precision_metric(edge_probabilities, y.int())
+            recall = recall_metric(edge_probabilities, y.int())
+            precisions, recalls, _ = prc_metric(edge_probabilities, y.int())
+            auprc = auc_metric(precisions, recalls)
+            npv = npv_metric(1 - edge_probabilities, (1 - y).int())
 
             # Calculate the exponential moving average of the loss
             ema_loss = (config.ema_decay * ema_loss +
@@ -131,9 +140,13 @@ def train(config: Config):
             ema_recall = (config.ema_decay * ema_recall +
                           (1 - config.ema_decay) * float(recall))
 
-            # Calculate the exponential moving average of the specificity
-            ema_specificity = (config.ema_decay * ema_specificity +
-                               (1 - config.ema_decay) * float(specificity))
+            # Calculate the exponential moving average of the f1 score
+            ema_auprc = (config.ema_decay * ema_auprc +
+                         (1 - config.ema_decay) * float(auprc))
+
+            # Calculate the exponential moving average of the NPV
+            ema_npv = (config.ema_decay * ema_npv +
+                       (1 - config.ema_decay) * float(npv))
 
             # Backpropagate the loss
             loss.backward()
@@ -159,16 +172,19 @@ def train(config: Config):
                     f'F1 score {100 * ema_f1:.2f} - '
                     f'Precision {100 * ema_precision:.2f} - '
                     f'Recall {100 * ema_recall:.2f} - '
-                    f'Specificity {100 * ema_specificity:.2f} - '
+                    f'AUPRC {100 * ema_auprc:.2f} - '
+                    f'NPV {100 * ema_npv:.2f} - '
                     f'Learning rate {1_000_000 * lr:.0f}e-6'
                 )
 
-    # Save the config
-    with config_path.open('w') as f:
-        json.dump(config.__dict__, f)
+    if config.save_model:
 
-    # Save the model
-    torch.save(model.state_dict(), model_path)
+        # Save the config
+        with config_path.open('w') as f:
+            json.dump(config.__dict__, f)
+
+        # Save the model
+        torch.save(model.state_dict(), model_path)
 
 
 if __name__ == '__main__':
