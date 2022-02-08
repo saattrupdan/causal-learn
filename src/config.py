@@ -11,7 +11,7 @@ class Config(BaseModel):
     # Dataset hyperparameters
     num_variables_range: Tuple[int, int] = (10, 10)
     num_data_points: int = 10_000
-    sparsity_interval: Tuple[float, float] = (0.8, 0.8)
+    sparsity_interval: Tuple[float, float] = (0.0, 0.8)
 
     # Model hyperparameters
     dim: int = 256
