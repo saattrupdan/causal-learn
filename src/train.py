@@ -64,8 +64,7 @@ def train(config: Config):
     precision_metric = tm.Precision(threshold=config.threshold)
     recall_metric = tm.Recall(threshold=config.threshold)
     npv_metric = tm.Precision(threshold=config.threshold)
-    prc_metric = tm.PrecisionRecallCurve()
-    auc_metric = tm.AUC(reorder=True)
+    specificity_metric = tm.Specificity(threshold=config.threshold)
 
     # Move metrics to the GPU if it is available
     if torch.cuda.is_available():
@@ -73,6 +72,7 @@ def train(config: Config):
         precision_metric.cuda()
         recall_metric.cuda()
         npv_metric.cuda()
+        specificity_metric.cuda()
 
     # Define the optimiser
     optimiser = opt.AdamW(model.parameters(), lr=config.lr)
@@ -88,7 +88,7 @@ def train(config: Config):
     ema_precision = 0.
     ema_recall = 0.
     ema_npv = 0.
-    ema_auprc = 0.
+    ema_specificity = 0.
 
     # Set up a progress bar
     with tqdm(enumerate(it.islice(dataloader, config.num_iterations)),
@@ -120,9 +120,8 @@ def train(config: Config):
             f1 = f1_metric(edge_probabilities, y.int())
             precision = precision_metric(edge_probabilities, y.int())
             recall = recall_metric(edge_probabilities, y.int())
-            precisions, recalls, _ = prc_metric(edge_probabilities, y.int())
-            auprc = auc_metric(precisions, recalls)
             npv = npv_metric(1 - edge_probabilities, (1 - y).int())
+            specificity = specificity_metric(edge_probabilities, y.int())
 
             # Calculate the exponential moving average of the loss
             ema_loss = (config.ema_decay * ema_loss +
@@ -147,6 +146,10 @@ def train(config: Config):
             # Calculate the exponential moving average of the NPV
             ema_npv = (config.ema_decay * ema_npv +
                        (1 - config.ema_decay) * float(npv))
+
+            # Calculate the exponential moving average of the specificity
+            ema_specificity = (config.ema_decay * ema_specificity +
+                               (1 - config.ema_decay) * float(specificity))
 
             # Backpropagate the loss
             loss.backward()
@@ -174,6 +177,7 @@ def train(config: Config):
                     f'Recall {100 * ema_recall:.2f} - '
                     f'AUPRC {100 * ema_auprc:.2f} - '
                     f'NPV {100 * ema_npv:.2f} - '
+                    f'Specificity {100 * ema_specificity:.2f} - '
                     f'Learning rate {1_000_000 * lr:.0f}e-6'
                 )
 
